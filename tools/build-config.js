@@ -1,4 +1,4 @@
-var filename = 'sealdice-js-ext.js'
+var filename = 'sans-financial-core.js'
 
 module.exports = {
   dev: {
@@ -24,7 +24,7 @@ module.exports = {
     target: 'es2020',
     treeShaking: true,
     logLevel: 'error',
-    define: {'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')},
+    define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development') },
     supported: {
       'async-await': true,
     },
@@ -52,7 +52,7 @@ module.exports = {
     target: 'es6',
     treeShaking: true,
     logLevel: 'error',
-    define: {'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')},
+    define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development') },
     supported: {
       'async-await': true,
     },
