@@ -1,17 +1,25 @@
 const STORAGE_NAME = "SansFinacialCore"
 
+function isValidJSON(str: string): boolean {
+    try {
+        JSON.parse(str);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
 class Bill {
     //出入账单
-    amount: number;
-    currency: Currency;
+    currency: Array<{ currency: Currency, amount: number }>;
+    property: Array<{ [key: string]: number }>;
     receiverId: string;
     payerId: string;
     time: number; //timestamp
     reason: string;
 
-    constructor(amount: number, currency: Currency, receiverId: string, payerId: string, reason: string) {
-        this.amount = amount;
+    constructor(currency: Array<{ currency: Currency, amount: number }>, property: Array<{ [key: string]: number }>, receiverId: string, payerId: string, reason: string) {
         this.currency = currency;
+        this.property = property;
         this.receiverId = receiverId;
         this.payerId = payerId;
         this.reason = reason;
@@ -24,15 +32,15 @@ class Currency {
     id: string; //ID
     //以下都是展示出来的信息
     name: string;
-    alias: Array<string>;
+    alias: string;
     currencyShorthand: string;
     conversionRatio: { [key: string]: number };
     description: string; //optional
 
-    constructor(name: string, alias: Array<string>, currencyShorthand: string, conversionRatio: { [key: string]: number }, description: string) {
+    constructor(name: string, alias: string, currencyShorthand: string, conversionRatio: { [key: string]: number }, description: string) {
         this.name = name;
-        this.alias = alias || [];
-        if(currencyShorthand === null) {
+        this.alias = alias || null;
+        if (currencyShorthand === null) {
             throw new Error("在创建货币时参数currencyShorthand缺失或无效！");
         }
         this.currencyShorthand = currencyShorthand;
@@ -72,8 +80,8 @@ class FinancialManager {
 
         //检查指定群组的指定玩家是否建立档案,没有就建立
         const pid = kwargs.get('playerId');
-        if (pid && gid && fetchedData[gid][pid] === null) {
-            fetchedData[gid][pid] = {
+        if (pid && fetchedData[pid] === null) {
+            fetchedData[pid] = {
                 'bills': [],
                 'property': []
             }
@@ -88,27 +96,30 @@ class FinancialManager {
     }
 
     __save(formedData: { [key: string]: any } = null) {
-        if(formedData === null) {
+        if (formedData === null) {
             formedData = this.__getStorage();
         }
         this.extension.storageSet(STORAGE_NAME, JSON.stringify(formedData));
     }
 
     //添加货币币种
-    addCurrency(name: string, alias: Array<string> = null, currencyShorthand: string, conversionRatio: { [key: string]: number } = null, description: string = null, ctx: seal.MsgContext) {
+    addCurrency(name: string, alias: string = null, currencyShorthand: string, conversionRatio: string = null, description: string = null) {
         /**
          * 添加货币币种
          * @param name 货币名称
          * @param alias 货币的别称
          * @param currencyShorthand 货币的缩写,例如RMB USD
-         * @param conversionRatio 货币的兑换比率,例: {'example_original_coin_name': 10} 那么1单位此货币可兑换10单位的'originalName'属性为'exam...n_name'的货币
+         * @param conversionRatio 货币的兑换比率,例: [{'example_original_coin_name': 10}] 那么1单位此货币可兑换10单位的'originalName'属性为'exam...n_name'的货币
          * @param description 货币的介绍
-         * @param ctx :seal.MsgContext 必需
          */
-        let currency = new Currency(name, alias, currencyShorthand, conversionRatio, description);
+        if (!isValidJSON(conversionRatio)) {
+            throw new Error("conversionRatio参数不符合JSON格式,是否做过类型检查?");
+        }
+        let currency = new Currency(name, alias, currencyShorthand, eval(conversionRatio), description);
         let fData = this.__getStorage();
         fData['currency'].push(currency);
         this.__save(fData);
+        return 0;
     }
 
     //删除货币币种
@@ -118,19 +129,28 @@ class FinancialManager {
          * @param id 货币的ID,可通过selectCurrency()方法查询
          */
         let fData = this.__getStorage();
+        let a = (fData['currency'].filter(currency => currency.id !== id))[0];
+        if (a === null) {
+            return 1;
+        }
         fData['currency'] = fData['currency'].filter(currency => currency.id === id);
         this.__save(fData);
+        return 0;
     }
 
     //修改货币币种()
-    updateCurrency(id:string, kwargs: {[key: string]: any}) {
+    updateCurrency(id: string, kwargs: { [key: string]: any }) {
         /**
          * 修改指定的货币种类
          * @param id 货币的ID,可通过selectCurrency()方法查询
          * @param kwargs 要修改的数据,键值与addCurrency方法相同
          */
         let fData = this.__getStorage();
-        let currency: Currency = fData['currency'].filter(currency => currency.id !== id);
+        let currency: Currency = (fData['currency'].filter(currency => currency.id !== id))[0];
+        if (currency === null) {
+            //未找到
+            return 1;
+        }
         currency.name = kwargs.get('name') || currency.name;
         currency.alias = kwargs.get('alias') || currency.alias;
         currency.conversionRatio = kwargs.get('conversionRatio') || currency.conversionRatio;
@@ -139,11 +159,51 @@ class FinancialManager {
         fData['currency'] = fData['currency'].filter(currency => currency.id === id);
         fData['currency'].push(currency);
         this.__save(fData);
+        return 0;
     }
 
     //查询货币币种
-    selectCurrency() {
-
+    selectCurrency(kwargs: { [key: string]: any }) {
+        /**
+         * 查询货币
+         * @param kwargs 查询的条件,可以多种,例如:{id:'标准货币','currencyShorthand':'Coin'}
+         */
+        let fData = this.__getStorage();
+        let id = kwargs.get('id');
+        let name = kwargs.get('name');
+        let alias = kwargs.get('alias');
+        let conversionRatio = kwargs.get('conversionRatio');
+        let description = kwargs.get('description');
+        let currencyShorthand = kwargs.get('currencyShorthand');
+        let resArr = [];
+        for (let i = 0; i < fData['currency'].length; i++) {
+            let comp = fData['currency'][i];
+            if (id !== null && comp['id'] == id && !resArr.includes(comp)) {
+                resArr.push(comp);
+                continue;
+            }
+            if (name !== null && comp['name'].includes(name) && !resArr.includes(comp)) {
+                resArr.push(comp);
+                continue;
+            }
+            if (alias !== null && comp['alias'].includes(alias) && !resArr.includes(comp)) {
+                resArr.push(comp);
+                continue;
+            }
+            if (conversionRatio !== null && comp['conversionRatio'].includes(conversionRatio) && !resArr.includes(comp)) {
+                resArr.push(comp);
+                continue;
+            }
+            if (description !== null && comp['description'].includes(description) && !resArr.includes(comp)) {
+                resArr.push(comp);
+                continue;
+            }
+            if (currencyShorthand !== null && comp['currencyShorthand'].includes(currencyShorthand) && !resArr.includes(comp)) {
+                resArr.push(comp);
+                continue;
+            }
+        }
+        return resArr;
     }
 
     //添加账单
